@@ -37,8 +37,18 @@ class LocationRead(LocationBase):
 
 
 class PersonLocationAssignment(BaseModel):
-    role: LocationRole
-    location_id: int
+    role: LocationRole = Field(
+        ...,
+        description=(
+            "Role describing how the person is connected to the location. "
+            "Accepted values are: 'birthplace' (where the person was born), "
+            "'residence' (a place they lived), and 'burial' (their resting place)."
+        ),
+        examples=["birthplace"],
+    )
+    location_id: int = Field(
+        ..., description="Identifier of an existing location record.", examples=[3]
+    )
 
 
 class PersonLocationRead(BaseModel):
@@ -49,16 +59,70 @@ class PersonLocationRead(BaseModel):
 
 
 class PersonBase(BaseModel):
-    first_name: str = Field(..., max_length=64)
-    last_name: str = Field(..., max_length=64)
-    birth_date: Optional[date] = None
-    death_date: Optional[date] = None
-    biography: Optional[str] = None
-    family_id: Optional[int] = Field(default=None, description="Identifier of the family")
+    first_name: str = Field(
+        ...,
+        max_length=64,
+        description="Given name of the person.",
+        examples=["Alice"],
+    )
+    last_name: str = Field(
+        ...,
+        max_length=64,
+        description="Family name or surname of the person.",
+        examples=["Johnson"],
+    )
+    birth_date: Optional[date] = Field(
+        default=None,
+        description="Date of birth in ISO 8601 format (YYYY-MM-DD).",
+        examples=["1984-05-12"],
+    )
+    death_date: Optional[date] = Field(
+        default=None,
+        description="Date of death in ISO 8601 format, if applicable.",
+        examples=["2035-09-01"],
+    )
+    biography: Optional[str] = Field(
+        default=None,
+        description="Narrative summary or key facts about the person's life.",
+        examples=[
+            "Alice was an avid gardener who moved to Springfield in the early 2000s."
+        ],
+    )
+    family_id: Optional[int] = Field(
+        default=None,
+        description="Identifier of the family this person belongs to, if any.",
+        examples=[1],
+    )
 
 
 class PersonCreate(PersonBase):
-    locations: List[PersonLocationAssignment] = Field(default_factory=list)
+    locations: List[PersonLocationAssignment] = Field(
+        default_factory=list,
+        description="List of location assignments describing key places in the person's life.",
+        examples=[
+            [
+                {"role": "birthplace", "location_id": 2},
+                {"role": "residence", "location_id": 5},
+            ]
+        ],
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "first_name": "Alice",
+                "last_name": "Johnson",
+                "birth_date": "1984-05-12",
+                "death_date": None,
+                "biography": "Alice was an avid gardener who moved to Springfield in the early 2000s.",
+                "family_id": 1,
+                "locations": [
+                    {"role": "birthplace", "location_id": 2},
+                    {"role": "residence", "location_id": 5},
+                ],
+            }
+        }
+    )
 
 
 class PersonUpdate(BaseModel):
