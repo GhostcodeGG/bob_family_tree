@@ -106,3 +106,56 @@ def test_duplicate_location_roles_rejected(client: TestClient, session: Session)
     update_response = client.put(f"/people/{person_id}", json=duplicate_payload)
     assert update_response.status_code == 400
     assert update_response.json()["detail"] == "Duplicate location role 'residence' in request"
+
+
+def test_create_person_with_nested_family_and_locations(
+    client: TestClient, session: Session
+) -> None:
+    existing_location = client.post(
+        "/locations",
+        json={
+            "name": "City Square",
+            "city": "Metro City",
+            "state": "Central",
+            "country": "Freedonia",
+        },
+    )
+    assert existing_location.status_code == 201
+    existing_location_id = existing_location.json()["id"]
+
+    payload = {
+        "first_name": "Charlie",
+        "last_name": "Nested",
+        "biography": "Created in one shot",
+        "family": {"name": "Nested Family", "description": "Created inline"},
+        "locations": [
+            {
+                "role": "birthplace",
+                "new_location": {
+                    "name": "Gotham General",
+                    "city": "Gotham",
+                    "state": "NY",
+                    "country": "USA",
+                },
+            },
+            {"role": "residence", "location_id": existing_location_id},
+        ],
+    }
+
+    response = client.post("/people", json=payload)
+    assert response.status_code == 201
+    person = response.json()
+
+    assert person["family_id"] is not None
+    family_response = client.get(f"/families/{person['family_id']}")
+    assert family_response.status_code == 200
+    assert family_response.json()["name"] == "Nested Family"
+
+    locations_by_role = {loc["role"]: loc["location"] for loc in person["locations"]}
+    assert locations_by_role["birthplace"]["name"] == "Gotham General"
+    assert locations_by_role["residence"]["id"] == existing_location_id
+
+    new_location_id = locations_by_role["birthplace"]["id"]
+    location_lookup = client.get(f"/locations/{new_location_id}")
+    assert location_lookup.status_code == 200
+    assert location_lookup.json()["name"] == "Gotham General"
