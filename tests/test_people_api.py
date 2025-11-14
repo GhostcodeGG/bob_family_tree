@@ -66,3 +66,43 @@ def test_person_crud_flow(client: TestClient, session: Session) -> None:
 
     list_after_delete = client.get("/people")
     assert all(item["id"] != person_id for item in list_after_delete.json())
+
+
+def test_duplicate_location_roles_rejected(client: TestClient, session: Session) -> None:
+    family_response = client.post("/families", json={"name": "Dupes", "description": "Family"})
+    assert family_response.status_code == 201
+    family_id = family_response.json()["id"]
+
+    location_one = client.post(
+        "/locations",
+        json={"name": "Alpha", "city": "Town", "country": "Wonderland"},
+    )
+    assert location_one.status_code == 201
+    location_one_id = location_one.json()["id"]
+
+    location_two = client.post(
+        "/locations",
+        json={"name": "Beta", "city": "City", "country": "Wonderland"},
+    )
+    assert location_two.status_code == 201
+    location_two_id = location_two.json()["id"]
+
+    person_create = {
+        "first_name": "Bob",
+        "last_name": "Duperson",
+        "family_id": family_id,
+        "locations": [{"role": "birthplace", "location_id": location_one_id}],
+    }
+    create_response = client.post("/people", json=person_create)
+    assert create_response.status_code == 201
+    person_id = create_response.json()["id"]
+
+    duplicate_payload = {
+        "locations": [
+            {"role": "residence", "location_id": location_one_id},
+            {"role": "residence", "location_id": location_two_id},
+        ]
+    }
+    update_response = client.put(f"/people/{person_id}", json=duplicate_payload)
+    assert update_response.status_code == 400
+    assert update_response.json()["detail"] == "Duplicate location role 'residence' in request"

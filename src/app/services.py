@@ -29,15 +29,26 @@ def apply_person_locations(
 ) -> None:
     """Synchronize person location associations with supplied assignments."""
 
+    materialized = list(assignments)
+
+    seen_roles: set[models.LocationRole] = set()
+    for assignment in materialized:
+        if assignment.role in seen_roles:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Duplicate location role '{assignment.role}' in request",
+            )
+        seen_roles.add(assignment.role)
+
     existing_by_role = {link.role: link for link in person.locations}
-    requested_roles = {assignment.role for assignment in assignments}
+    requested_roles = {assignment.role for assignment in materialized}
 
     # Remove roles that are no longer present
     for role, link in list(existing_by_role.items()):
         if role not in requested_roles:
             session.delete(link)
 
-    for assignment in assignments:
+    for assignment in materialized:
         location = session.get(models.Location, assignment.location_id)
         if location is None:
             raise HTTPException(
@@ -46,9 +57,9 @@ def apply_person_locations(
             )
         link = existing_by_role.get(assignment.role)
         if link is None:
-            session.add(
-                models.PersonLocation(person=person, location=location, role=assignment.role)
-            )
+            link = models.PersonLocation(person=person, location=location, role=assignment.role)
+            session.add(link)
+            existing_by_role[assignment.role] = link
         else:
             link.location = location
 
