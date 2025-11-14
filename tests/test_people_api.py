@@ -108,6 +108,23 @@ def test_duplicate_location_roles_rejected(client: TestClient, session: Session)
     assert update_response.json()["detail"] == "Duplicate location role 'residence' in request"
 
 
+def test_person_with_death_before_birth_rejected(client: TestClient, session: Session) -> None:
+    payload = {
+        "first_name": "Temporal",
+        "last_name": "Anomaly",
+        "birth_date": "2000-01-01",
+        "death_date": "1990-01-01",
+    }
+
+    response = client.post("/people", json=payload)
+
+    assert response.status_code == 422
+    assert any(
+        error.get("msg") == "Value error, death_date cannot be earlier than birth_date"
+        for error in response.json().get("detail", [])
+    )
+
+
 def test_create_person_with_nested_family_and_locations(
     client: TestClient, session: Session
 ) -> None:
