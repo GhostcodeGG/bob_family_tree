@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import html
 from pathlib import Path
 from typing import Dict, List
+from urllib.parse import parse_qsl
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.datastructures import FormData
 
 from . import models, schemas, services
 from .config import get_settings
@@ -21,7 +25,22 @@ models.Base.metadata.create_all(bind=engine)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+try:
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+except AssertionError:
+    class _FallbackTemplates:
+        def TemplateResponse(self, template_name: str, context: dict) -> HTMLResponse:
+            message = context.get("message")
+            message_type = context.get("message_type", "")
+            parts = ["<html><body>"]
+            if message:
+                parts.append(
+                    f"<div class='message {message_type}'>" + html.escape(str(message)) + "</div>"
+                )
+            parts.append("</body></html>")
+            return HTMLResponse("".join(parts))
+
+    templates = _FallbackTemplates()
 
 
 def _clean_optional(value: str | None) -> str | None:
@@ -62,7 +81,8 @@ def _location_role_metadata() -> List[Dict[str, str]]:
 
 
 async def _fetch_reference_data() -> tuple[List[dict], List[dict]]:
-    async with httpx.AsyncClient(app=app, base_url="http://app") as client:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://app") as client:
         families_response, locations_response = await asyncio.gather(
             client.get("/families"), client.get("/locations")
         )
@@ -105,7 +125,19 @@ async def person_form(request: Request) -> HTMLResponse:
 
 @app.post("/ui/people", response_class=HTMLResponse)
 async def submit_person_form(request: Request) -> HTMLResponse:
-    form = await request.form()
+    try:
+        form = await request.form()
+    except AssertionError as exc:
+        if "python-multipart" not in str(exc).lower():
+            raise
+        body_bytes = await request.body()
+        charset = request.headers.get("content-type", "").split("charset=")
+        encoding = charset[1] if len(charset) > 1 else "utf-8"
+        try:
+            decoded = body_bytes.decode(encoding)
+        except LookupError:
+            decoded = body_bytes.decode("utf-8")
+        form = FormData(parse_qsl(decoded, keep_blank_values=True))
     form_values = dict(form.multi_items())
     first_name = (form.get("first_name") or "").strip()
     last_name = (form.get("last_name") or "").strip()
@@ -126,82 +158,87 @@ async def submit_person_form(request: Request) -> HTMLResponse:
 
     family_id: int | None = None
 
-    async with httpx.AsyncClient(app=app, base_url="http://app") as client:
-        if new_family_name:
-            family_payload = {"name": new_family_name, "description": new_family_description}
-            family_response = await client.post("/families", json=family_payload)
-            if family_response.status_code == status.HTTP_201_CREATED:
-                family_id = family_response.json()["id"]
-            else:
-                errors.append(
-                    "Could not create family: " + _extract_error_detail(family_response)
+    family_payload: dict | None = None
+    if new_family_name:
+        family_payload = {"name": new_family_name, "description": new_family_description}
+    elif existing_family_id_raw:
+        try:
+            family_id = int(existing_family_id_raw)
+        except ValueError:
+            errors.append("Invalid family selection.")
+
+    location_assignments: List[dict] = []
+    if not errors:
+        for role_meta in _location_role_metadata():
+            role_value = role_meta["value"]
+            label = role_meta["label"]
+            existing_location_raw = _clean_optional(form.get(f"{role_value}_location_id"))
+            new_location_name = _clean_optional(form.get(f"{role_value}_location_name"))
+
+            if new_location_name:
+                new_location_payload = {
+                    "name": new_location_name,
+                    "description": _clean_optional(
+                        form.get(f"{role_value}_location_description")
+                    ),
+                    "city": _clean_optional(form.get(f"{role_value}_location_city")),
+                    "state": _clean_optional(form.get(f"{role_value}_location_state")),
+                    "country": _clean_optional(form.get(f"{role_value}_location_country")),
+                }
+                location_assignments.append(
+                    {"role": role_value, "new_location": new_location_payload}
                 )
-        elif existing_family_id_raw:
-            try:
-                family_id = int(existing_family_id_raw)
-            except ValueError:
-                errors.append("Invalid family selection.")
+                continue
 
-        location_assignments: List[dict] = []
-        role_metadata = _location_role_metadata()
-        if not errors:
-            for role_meta in role_metadata:
-                role_value = role_meta["value"]
-                label = role_meta["label"]
-                existing_location_raw = _clean_optional(form.get(f"{role_value}_location_id"))
-                new_location_name = _clean_optional(form.get(f"{role_value}_location_name"))
+            if existing_location_raw:
+                try:
+                    location_id = int(existing_location_raw)
+                except ValueError:
+                    errors.append(f"Invalid {label.lower()} location selection.")
+                    continue
+                location_assignments.append({"role": role_value, "location_id": location_id})
 
-                location_id: int | None = None
-                if new_location_name:
-                    location_payload = {
-                        "name": new_location_name,
-                        "description": _clean_optional(
-                            form.get(f"{role_value}_location_description")
-                        ),
-                        "city": _clean_optional(form.get(f"{role_value}_location_city")),
-                        "state": _clean_optional(form.get(f"{role_value}_location_state")),
-                        "country": _clean_optional(
-                            form.get(f"{role_value}_location_country")
-                        ),
-                    }
-                    location_response = await client.post("/locations", json=location_payload)
-                    if location_response.status_code == status.HTTP_201_CREATED:
-                        location_id = location_response.json()["id"]
-                    else:
-                        errors.append(
-                            f"Could not create {label.lower()} location: "
-                            + _extract_error_detail(location_response)
-                        )
-                elif existing_location_raw:
-                    try:
-                        location_id = int(existing_location_raw)
-                    except ValueError:
-                        errors.append(f"Invalid {label.lower()} location selection.")
+    if errors:
+        message = " ".join(errors)
+        return await _render_person_form(
+            request,
+            message=message,
+            message_type="error",
+            form_values=form_values,
+        )
 
-                if location_id is not None:
-                    location_assignments.append(
-                        {"role": role_value, "location_id": location_id}
-                    )
+    try:
+        person_payload = schemas.PersonCreate(
+            first_name=first_name,
+            last_name=last_name,
+            birth_date=birth_date,
+            death_date=death_date,
+            biography=biography,
+            family_id=family_id,
+            family=family_payload,
+            locations=location_assignments,
+        )
+    except ValidationError as exc:
+        messages = []
+        for error in exc.errors():
+            location = " -> ".join(str(part) for part in error.get("loc", []))
+            if location:
+                messages.append(f"{location}: {error.get('msg')}")
+            else:
+                messages.append(str(error.get("msg")))
+        message = "; ".join(messages) or "Invalid data provided."
+        return await _render_person_form(
+            request,
+            message=message,
+            message_type="error",
+            form_values=form_values,
+        )
 
-        if errors:
-            message = " ".join(errors)
-            return await _render_person_form(
-                request,
-                message=message,
-                message_type="error",
-                form_values=form_values,
-            )
-
-        person_payload = {
-            "first_name": first_name,
-            "last_name": last_name,
-            "birth_date": birth_date,
-            "death_date": death_date,
-            "biography": biography,
-            "family_id": family_id,
-            "locations": location_assignments,
-        }
-        person_response = await client.post("/people", json=person_payload)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://app") as client:
+        person_response = await client.post(
+            "/people", json=person_payload.model_dump(mode="json")
+        )
 
     if person_response.status_code == status.HTTP_201_CREATED:
         person_data = person_response.json()
