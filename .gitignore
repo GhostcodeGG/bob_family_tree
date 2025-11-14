@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+.family_tree.db
+family_tree.db
