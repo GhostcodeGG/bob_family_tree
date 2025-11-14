@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import FormData
 
 from . import models, schemas, services
@@ -274,14 +274,30 @@ def create_family(
     return family
 
 
-@app.get("/families", response_model=List[schemas.FamilyRead])
-def list_families(session: Session = Depends(get_session)) -> List[schemas.FamilyRead]:
-    return list(session.scalars(select(models.Family)))
+@app.get("/families", response_model=List[schemas.FamilyDetail])
+def list_families(session: Session = Depends(get_session)) -> List[schemas.FamilyDetail]:
+    families_query = select(models.Family).options(
+        selectinload(models.Family.members)
+        .selectinload(models.Person.locations)
+        .selectinload(models.PersonLocation.location)
+    )
+    return list(session.scalars(families_query))
 
 
-@app.get("/families/{family_id}", response_model=schemas.FamilyRead)
-def get_family(family_id: int, session: Session = Depends(get_session)) -> schemas.FamilyRead:
-    family = session.get(models.Family, family_id)
+@app.get("/families/{family_id}", response_model=schemas.FamilyDetail)
+def get_family(
+    family_id: int, session: Session = Depends(get_session)
+) -> schemas.FamilyDetail:
+    family_query = (
+        select(models.Family)
+        .options(
+            selectinload(models.Family.members)
+            .selectinload(models.Person.locations)
+            .selectinload(models.PersonLocation.location)
+        )
+        .where(models.Family.id == family_id)
+    )
+    family = session.scalars(family_query).first()
     if family is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Family not found")
     return family

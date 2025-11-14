@@ -118,6 +118,12 @@ class FamilyRead(FamilyBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FamilyDetail(FamilyRead):
+    members: List[PersonRead] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class RelationshipBase(BaseModel):
     from_person_id: int
     to_person_id: int
