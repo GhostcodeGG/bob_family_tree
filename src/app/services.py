@@ -49,12 +49,17 @@ def apply_person_locations(
             session.delete(link)
 
     for assignment in materialized:
-        location = session.get(models.Location, assignment.location_id)
-        if location is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Location {assignment.location_id} not found",
-            )
+        if assignment.new_location is not None:
+            location = models.Location(**assignment.new_location.model_dump())
+            session.add(location)
+            session.flush()
+        else:
+            location = session.get(models.Location, assignment.location_id)
+            if location is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Location {assignment.location_id} not found",
+                )
         link = existing_by_role.get(assignment.role)
         if link is None:
             link = models.PersonLocation(person=person, location=location, role=assignment.role)

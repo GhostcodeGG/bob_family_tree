@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import LocationRole, RelationshipType
 
@@ -38,7 +38,18 @@ class LocationRead(LocationBase):
 
 class PersonLocationAssignment(BaseModel):
     role: LocationRole
-    location_id: int
+    location_id: Optional[int] = Field(default=None, description="Existing location identifier")
+    new_location: Optional[LocationCreate] = Field(
+        default=None, description="Data for creating a new location"
+    )
+
+    @model_validator(mode="after")
+    def _validate_location_reference(self) -> "PersonLocationAssignment":
+        if self.location_id is None and self.new_location is None:
+            raise ValueError("Either location_id or new_location must be provided")
+        if self.location_id is not None and self.new_location is not None:
+            raise ValueError("Provide only one of location_id or new_location")
+        return self
 
 
 class PersonLocationRead(BaseModel):
@@ -59,6 +70,9 @@ class PersonBase(BaseModel):
 
 class PersonCreate(PersonBase):
     locations: List[PersonLocationAssignment] = Field(default_factory=list)
+    family: Optional[FamilyCreate] = Field(
+        default=None, description="Optional nested payload to create a family"
+    )
 
 
 class PersonUpdate(BaseModel):

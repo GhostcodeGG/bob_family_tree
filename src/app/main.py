@@ -145,8 +145,23 @@ def _ensure_family_exists(session: Session, family_id: int | None) -> None:
 def create_person(
     payload: schemas.PersonCreate, session: Session = Depends(get_session)
 ) -> schemas.PersonRead:
-    _ensure_family_exists(session, payload.family_id)
-    data = payload.model_dump(exclude={"locations"})
+    if payload.family is not None and payload.family_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either family_id or family payload, not both",
+        )
+
+    family_id = payload.family_id
+    if payload.family is not None:
+        family = models.Family(**payload.family.model_dump())
+        session.add(family)
+        session.flush()
+        family_id = family.id
+    else:
+        _ensure_family_exists(session, family_id)
+
+    data = payload.model_dump(exclude={"locations", "family", "family_id"})
+    data["family_id"] = family_id
     person = models.Person(**data)
     session.add(person)
     session.flush()
