@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bob Family Tree &mdash; Create a Person</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f5f5f5;
+        color: #1f2933;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 3rem;
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: #102a43;
+      }
+
+      form {
+        background-color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+        padding: 2rem;
+        display: grid;
+        gap: 1.5rem;
+      }
+
+      fieldset {
+        border: 1px solid #d9e2ec;
+        border-radius: 8px;
+        padding: 1.5rem;
+      }
+
+      legend {
+        font-weight: 600;
+        padding: 0 0.5rem;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+      }
+
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+
+      input[type="text"],
+      input[type="date"],
+      select,
+      textarea {
+        width: 100%;
+        padding: 0.6rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #cbd2d9;
+        background-color: #ffffff;
+        box-sizing: border-box;
+      }
+
+      textarea {
+        min-height: 100px;
+        resize: vertical;
+      }
+
+      button[type="submit"] {
+        align-self: flex-start;
+        background-color: #1d4ed8;
+        color: #ffffff;
+        border: none;
+        border-radius: 6px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+      }
+
+      button[type="submit"]:hover {
+        background-color: #1e40af;
+      }
+
+      .message {
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+      }
+
+      .message.success {
+        background-color: #def7ec;
+        color: #03543f;
+        border: 1px solid #31c48d;
+      }
+
+      .message.error {
+        background-color: #fde8e8;
+        color: #9b1c1c;
+        border: 1px solid #f05252;
+      }
+
+      .helper-text {
+        font-size: 0.9rem;
+        color: #52606d;
+        margin-bottom: 0.75rem;
+      }
+
+      .created-person {
+        background-color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .created-person ul {
+        padding-left: 1.5rem;
+      }
+
+      .stack {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .grid-two {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .section-heading {
+        margin-bottom: 0.4rem;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Create a person</h1>
+        <p class="helper-text">
+          Use this form to build a person record. You can link the person to an existing family or create
+          a brand-new one, and optionally associate birthplace, residence, and burial locations.
+        </p>
+      </header>
+
+      {% if message %}
+      <div class="message {{ message_type }}">{{ message }}</div>
+      {% endif %}
+
+      {% if created_person %}
+      <section class="created-person">
+        <h2>Person created successfully</h2>
+        <ul>
+          <li><strong>Name:</strong> {{ created_person.first_name }} {{ created_person.last_name }}</li>
+          {% if created_person.family_id %}
+          <li><strong>Family ID:</strong> {{ created_person.family_id }}</li>
+          {% endif %}
+          {% if created_person.birth_date %}
+          <li><strong>Birth date:</strong> {{ created_person.birth_date }}</li>
+          {% endif %}
+          {% if created_person.death_date %}
+          <li><strong>Death date:</strong> {{ created_person.death_date }}</li>
+          {% endif %}
+          {% if created_person.locations %}
+          <li>
+            <strong>Locations:</strong>
+            <ul>
+              {% for assignment in created_person.locations %}
+              <li>
+                {{ assignment.role|capitalize }}
+                &mdash;
+                {{ assignment.location.name }}
+                {% set parts = [] %}
+                {% if assignment.location.city %}
+                  {% set _ = parts.append(assignment.location.city) %}
+                {% endif %}
+                {% if assignment.location.state %}
+                  {% set _ = parts.append(assignment.location.state) %}
+                {% endif %}
+                {% if assignment.location.country %}
+                  {% set _ = parts.append(assignment.location.country) %}
+                {% endif %}
+                {% if parts %}
+                ({{ ", ".join(parts) }})
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+          </li>
+          {% endif %}
+        </ul>
+      </section>
+      {% endif %}
+
+      <form method="post" action="/ui/people">
+        <fieldset class="stack">
+          <legend>Basic information</legend>
+          <div class="grid-two">
+            <div>
+              <label for="first_name">First name</label>
+              <input id="first_name" name="first_name" type="text" required value="{{ form_values.get('first_name', '') }}" />
+            </div>
+            <div>
+              <label for="last_name">Last name</label>
+              <input id="last_name" name="last_name" type="text" required value="{{ form_values.get('last_name', '') }}" />
+            </div>
+          </div>
+
+          <div class="grid-two">
+            <div>
+              <label for="birth_date">Birth date</label>
+              <input id="birth_date" name="birth_date" type="date" value="{{ form_values.get('birth_date', '') }}" />
+            </div>
+            <div>
+              <label for="death_date">Death date</label>
+              <input id="death_date" name="death_date" type="date" value="{{ form_values.get('death_date', '') }}" />
+            </div>
+          </div>
+
+          <div>
+            <label for="biography">Biography</label>
+            <textarea id="biography" name="biography">{{ form_values.get('biography', '') }}</textarea>
+          </div>
+        </fieldset>
+
+        <fieldset class="stack">
+          <legend>Family</legend>
+          <div>
+            <div class="section-heading">Link to an existing family</div>
+            <select name="existing_family_id">
+              <option value="">-- No family --</option>
+              {% for family in families %}
+              <option value="{{ family.id }}" {% if form_values.get('existing_family_id') == family.id|string %}selected{% endif %}>
+                {{ family.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <div class="section-heading">Or create a new family</div>
+            <label for="new_family_name">Family name</label>
+            <input id="new_family_name" name="new_family_name" type="text" value="{{ form_values.get('new_family_name', '') }}" />
+            <label for="new_family_description">Description</label>
+            <textarea id="new_family_description" name="new_family_description">{{ form_values.get('new_family_description', '') }}</textarea>
+          </div>
+        </fieldset>
+
+        <fieldset class="stack">
+          <legend>Locations</legend>
+          <p class="helper-text">
+            For each role, you can select an existing location or describe a new one. Leave all fields blank
+            to skip the role.
+          </p>
+          {% for role in location_roles %}
+          <section class="stack">
+            <h3>{{ role.label }}</h3>
+            <label for="{{ role.value }}_location_id">Select an existing location</label>
+            <select id="{{ role.value }}_location_id" name="{{ role.value }}_location_id">
+              <option value="">-- No location --</option>
+              {% for location in locations %}
+              <option value="{{ location.id }}" {% if form_values.get(role.value ~ '_location_id') == location.id|string %}selected{% endif %}>
+                {{ location.name }}
+                {% set display_parts = [] %}
+                {% if location.city %}
+                  {% set _ = display_parts.append(location.city) %}
+                {% endif %}
+                {% if location.state %}
+                  {% set _ = display_parts.append(location.state) %}
+                {% endif %}
+                {% if location.country %}
+                  {% set _ = display_parts.append(location.country) %}
+                {% endif %}
+                {% if display_parts %}
+                  ({{ ", ".join(display_parts) }})
+                {% endif %}
+              </option>
+              {% endfor %}
+            </select>
+
+            <div class="grid-two">
+              <div>
+                <label for="{{ role.value }}_location_name">New location name</label>
+                <input
+                  id="{{ role.value }}_location_name"
+                  name="{{ role.value }}_location_name"
+                  type="text"
+                  value="{{ form_values.get(role.value ~ '_location_name', '') }}"
+                />
+              </div>
+              <div>
+                <label for="{{ role.value }}_location_city">City</label>
+                <input
+                  id="{{ role.value }}_location_city"
+                  name="{{ role.value }}_location_city"
+                  type="text"
+                  value="{{ form_values.get(role.value ~ '_location_city', '') }}"
+                />
+              </div>
+            </div>
+
+            <div class="grid-two">
+              <div>
+                <label for="{{ role.value }}_location_state">State / Region</label>
+                <input
+                  id="{{ role.value }}_location_state"
+                  name="{{ role.value }}_location_state"
+                  type="text"
+                  value="{{ form_values.get(role.value ~ '_location_state', '') }}"
+                />
+              </div>
+              <div>
+                <label for="{{ role.value }}_location_country">Country</label>
+                <input
+                  id="{{ role.value }}_location_country"
+                  name="{{ role.value }}_location_country"
+                  type="text"
+                  value="{{ form_values.get(role.value ~ '_location_country', '') }}"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label for="{{ role.value }}_location_description">Description</label>
+              <textarea id="{{ role.value }}_location_description" name="{{ role.value }}_location_description">{{ form_values.get(role.value ~ '_location_description', '') }}</textarea>
+            </div>
+          </section>
+          {% if not loop.last %}
+          <hr />
+          {% endif %}
+          {% endfor %}
+        </fieldset>
+
+        <button type="submit">Create person</button>
+      </form>
+    </main>
+  </body>
+</html>

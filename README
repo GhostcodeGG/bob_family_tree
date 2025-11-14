@@ -56,6 +56,17 @@ Bob Family Tree is a FastAPI backend that tracks people, families, locations, an
 
    The interactive API docs will be available at `http://127.0.0.1:8000/docs`.
 
+4. **Open the HTML form UI (optional)**:
+
+   A lightweight HTML interface is served from the root path. Visit `http://127.0.0.1:8000/` to launch
+   the "Create a person" form. The UI lets you:
+
+   - Create a person by filling out the core fields (name, dates, biography).
+   - Attach the person to an existing family or create a new family inline.
+   - Assign birthplace, residence, and burial locations by reusing existing locations or defining new ones on the fly.
+
+   When the form is submitted the UI calls the existing REST endpoints (`/families`, `/locations`, and `/people`) to persist the data.
+
 ## API overview
 
 Key endpoints include:

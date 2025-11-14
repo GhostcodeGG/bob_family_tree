@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from typing import List
+import asyncio
+from pathlib import Path
+from typing import Dict, List
 
-from fastapi import Depends, FastAPI, HTTPException, status
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +21,206 @@ models.Base.metadata.create_all(bind=engine)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+def _clean_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _extract_error_detail(response: httpx.Response) -> str:
+    try:
+        data = response.json()
+    except ValueError:
+        return response.text or response.reason_phrase
+
+    detail = data.get("detail")
+    if detail is None:
+        return response.text
+    if isinstance(detail, list):
+        messages = []
+        for entry in detail:
+            if isinstance(entry, dict):
+                messages.append(str(entry.get("msg") or entry))
+            else:
+                messages.append(str(entry))
+        return "; ".join(messages)
+    return str(detail)
+
+
+def _location_role_metadata() -> List[Dict[str, str]]:
+    return [
+        {
+            "value": role.value,
+            "label": role.value.replace("_", " ").title(),
+        }
+        for role in models.LocationRole
+    ]
+
+
+async def _fetch_reference_data() -> tuple[List[dict], List[dict]]:
+    async with httpx.AsyncClient(app=app, base_url="http://app") as client:
+        families_response, locations_response = await asyncio.gather(
+            client.get("/families"), client.get("/locations")
+        )
+
+    families = families_response.json() if families_response.status_code == status.HTTP_200_OK else []
+    locations = (
+        locations_response.json()
+        if locations_response.status_code == status.HTTP_200_OK
+        else []
+    )
+    return families, locations
+
+
+async def _render_person_form(
+    request: Request,
+    *,
+    message: str | None = None,
+    message_type: str = "success",
+    form_values: Dict[str, str] | None = None,
+    created_person: dict | None = None,
+) -> HTMLResponse:
+    families, locations = await _fetch_reference_data()
+    context = {
+        "request": request,
+        "families": families,
+        "locations": locations,
+        "location_roles": _location_role_metadata(),
+        "message": message,
+        "message_type": message_type,
+        "form_values": form_values or {},
+        "created_person": created_person,
+    }
+    return templates.TemplateResponse("person_form.html", context)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def person_form(request: Request) -> HTMLResponse:
+    return await _render_person_form(request, message_type="success")
+
+
+@app.post("/ui/people", response_class=HTMLResponse)
+async def submit_person_form(request: Request) -> HTMLResponse:
+    form = await request.form()
+    form_values = dict(form.multi_items())
+    first_name = (form.get("first_name") or "").strip()
+    last_name = (form.get("last_name") or "").strip()
+
+    errors: List[str] = []
+    if not first_name:
+        errors.append("First name is required.")
+    if not last_name:
+        errors.append("Last name is required.")
+
+    birth_date = _clean_optional(form.get("birth_date"))
+    death_date = _clean_optional(form.get("death_date"))
+    biography = _clean_optional(form.get("biography"))
+
+    existing_family_id_raw = _clean_optional(form.get("existing_family_id"))
+    new_family_name = _clean_optional(form.get("new_family_name"))
+    new_family_description = _clean_optional(form.get("new_family_description"))
+
+    family_id: int | None = None
+
+    async with httpx.AsyncClient(app=app, base_url="http://app") as client:
+        if new_family_name:
+            family_payload = {"name": new_family_name, "description": new_family_description}
+            family_response = await client.post("/families", json=family_payload)
+            if family_response.status_code == status.HTTP_201_CREATED:
+                family_id = family_response.json()["id"]
+            else:
+                errors.append(
+                    "Could not create family: " + _extract_error_detail(family_response)
+                )
+        elif existing_family_id_raw:
+            try:
+                family_id = int(existing_family_id_raw)
+            except ValueError:
+                errors.append("Invalid family selection.")
+
+        location_assignments: List[dict] = []
+        role_metadata = _location_role_metadata()
+        if not errors:
+            for role_meta in role_metadata:
+                role_value = role_meta["value"]
+                label = role_meta["label"]
+                existing_location_raw = _clean_optional(form.get(f"{role_value}_location_id"))
+                new_location_name = _clean_optional(form.get(f"{role_value}_location_name"))
+
+                location_id: int | None = None
+                if new_location_name:
+                    location_payload = {
+                        "name": new_location_name,
+                        "description": _clean_optional(
+                            form.get(f"{role_value}_location_description")
+                        ),
+                        "city": _clean_optional(form.get(f"{role_value}_location_city")),
+                        "state": _clean_optional(form.get(f"{role_value}_location_state")),
+                        "country": _clean_optional(
+                            form.get(f"{role_value}_location_country")
+                        ),
+                    }
+                    location_response = await client.post("/locations", json=location_payload)
+                    if location_response.status_code == status.HTTP_201_CREATED:
+                        location_id = location_response.json()["id"]
+                    else:
+                        errors.append(
+                            f"Could not create {label.lower()} location: "
+                            + _extract_error_detail(location_response)
+                        )
+                elif existing_location_raw:
+                    try:
+                        location_id = int(existing_location_raw)
+                    except ValueError:
+                        errors.append(f"Invalid {label.lower()} location selection.")
+
+                if location_id is not None:
+                    location_assignments.append(
+                        {"role": role_value, "location_id": location_id}
+                    )
+
+        if errors:
+            message = " ".join(errors)
+            return await _render_person_form(
+                request,
+                message=message,
+                message_type="error",
+                form_values=form_values,
+            )
+
+        person_payload = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "birth_date": birth_date,
+            "death_date": death_date,
+            "biography": biography,
+            "family_id": family_id,
+            "locations": location_assignments,
+        }
+        person_response = await client.post("/people", json=person_payload)
+
+    if person_response.status_code == status.HTTP_201_CREATED:
+        person_data = person_response.json()
+        message = f"Created {person_data['first_name']} {person_data['last_name']}."
+        return await _render_person_form(
+            request,
+            message=message,
+            message_type="success",
+            form_values={},
+            created_person=person_data,
+        )
+
+    error_detail = _extract_error_detail(person_response)
+    return await _render_person_form(
+        request,
+        message=f"Could not create person: {error_detail}",
+        message_type="error",
+        form_values=form_values,
+    )
 
 
 # Families --------------------------------------------------------------------
