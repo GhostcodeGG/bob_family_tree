@@ -67,6 +67,12 @@ class PersonBase(BaseModel):
     biography: Optional[str] = None
     family_id: Optional[int] = Field(default=None, description="Identifier of the family")
 
+    @model_validator(mode="after")
+    def _validate_life_dates(self) -> "PersonBase":
+        if self.birth_date and self.death_date and self.death_date < self.birth_date:
+            raise ValueError("death_date cannot be earlier than birth_date")
+        return self
+
 
 class PersonCreate(PersonBase):
     locations: List[PersonLocationAssignment] = Field(default_factory=list)
