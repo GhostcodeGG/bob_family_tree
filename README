@@ -1,1 +1,78 @@
-Family tree
+# Bob Family Tree API
+
+Bob Family Tree is a FastAPI backend that tracks people, families, locations, and the relationships that connect them.
+
+## Features
+
+- CRUD endpoints for people, families, locations, and relationship links
+- Automatic maintenance of reciprocal relationship records (e.g., parent/child, spouse)
+- Optional birthplace, residence, and burial metadata through reusable location entities
+- SQLAlchemy models with SQLite-backed migration script
+- Pydantic-based DTOs for validated, structured requests and responses
+- Comprehensive API and model tests powered by pytest and FastAPI's TestClient
+
+## Project layout
+
+```
+.
+├── migrations/                # SQL migration scripts
+│   └── 0001_create_schema.sql
+├── src/
+│   └── app/
+│       ├── config.py          # Application settings
+│       ├── database.py        # SQLAlchemy engine and session dependency
+│       ├── main.py            # FastAPI application with route handlers
+│       ├── models.py          # ORM definitions
+│       ├── schemas.py         # Pydantic DTOs for requests/responses
+│       └── services.py        # Domain logic (relationships, location syncing)
+├── tests/
+│   ├── conftest.py
+│   ├── test_people_api.py
+│   └── test_relationships_api.py
+└── pyproject.toml
+```
+
+## Getting started
+
+1. **Install dependencies** (preferably in a virtual environment):
+
+   ```bash
+   pip install -e .[dev]
+   ```
+
+2. **Create the database schema**. For the default SQLite database, run the provided migration:
+
+   ```bash
+   sqlite3 family_tree.db < migrations/0001_create_schema.sql
+   ```
+
+   You can also rely on SQLAlchemy to create the schema at application startup during local development.
+
+3. **Run the API server**:
+
+   ```bash
+   uvicorn app.main:app --reload --app-dir src
+   ```
+
+   The interactive API docs will be available at `http://127.0.0.1:8000/docs`.
+
+## API overview
+
+Key endpoints include:
+
+- `POST /families`, `GET /families`, `PUT /families/{id}`, `DELETE /families/{id}`
+- `POST /people`, `GET /people`, `PUT /people/{id}`, `DELETE /people/{id}`
+- `POST /locations`, `GET /locations`, `PUT /locations/{id}`, `DELETE /locations/{id}`
+- `POST /relationships`, `GET /relationships`, `PUT /relationships/{id}`, `DELETE /relationships/{id}`
+
+Relationship creation and updates automatically manage reciprocal links (parent/child, child/parent, spouse/spouse). People accept optional location assignments through the `locations` array, which references reusable location records.
+
+## Testing
+
+Run the automated test suite with:
+
+```bash
+pytest
+```
+
+The tests spin up an in-memory SQLite database, verify model constraints, confirm reciprocal relationship handling, and exercise the CRUD API flows.
