@@ -36,7 +36,7 @@ def apply_person_locations(
         if assignment.role in seen_roles:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Duplicate location role '{assignment.role}' in request",
+                detail=f"Duplicate location role '{assignment.role.value}' in request",
             )
         seen_roles.add(assignment.role)
 
